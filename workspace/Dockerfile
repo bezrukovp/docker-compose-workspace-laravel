@@ -44,8 +44,9 @@ MAINTAINER Mahmoud Zalt <mahmoud@zalt.me>
 # Add a non-root user to prevent files being created with root permissions on host machine.
 ARG PUID=1000
 ARG PGID=1000
-RUN groupadd -g $PGID laradock && \
-    useradd -u $PUID -g laradock -m laradock
+RUN groupadd -g $PGID developer && \
+    useradd -u $PUID -g developer -m developer -s /bin/bash && \
+    echo "developer:$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 13)" | chpasswd
 
 #####################################
 # Set Timezone
@@ -56,15 +57,26 @@ ENV TZ ${TZ}
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 #####################################
+# Additional base apps
+#####################################
+
+RUN apt-get update && \
+    apt-get install -y apt-utils sudo mc rsync \
+        iputils-ping telnet dnsutils tcpdump htop && \
+    echo '#developer' > /etc/sudoers.d/developer && \
+    echo 'developer ALL = NOPASSWD: ALL' >> /etc/sudoers.d/developer && \
+    usermod -aG sudo developer
+
+#####################################
 # Composer:
 #####################################
 
 # Add the composer.json
-COPY ./composer.json /home/laradock/.composer/composer.json
+COPY ./composer.json /home/developer/.composer/composer.json
 
-# Make sure that ~/.composer belongs to laradock
-RUN chown -R laradock:laradock /home/laradock/.composer
-USER laradock
+# Make sure that ~/.composer belongs to developer
+RUN chown -R developer:developer /home/developer/.composer
+USER developer
 
 # Check if global install need to be ran
 ARG COMPOSER_GLOBAL_INSTALL=false
@@ -90,17 +102,17 @@ RUN chmod -R 644 /etc/cron.d
 # User Aliases
 #####################################
 
-USER laradock
-COPY ./aliases.sh /home/laradock/aliases.sh
+USER developer
+COPY ./aliases.sh /home/developer/aliases.sh
 RUN echo "" >> ~/.bashrc && \
     echo "# Load Custom Aliases" >> ~/.bashrc && \
-    echo "source /home/laradock/aliases.sh" >> ~/.bashrc && \
+    echo "source /home/developer/aliases.sh" >> ~/.bashrc && \
     echo "" >> ~/.bashrc
     
 USER root
 RUN echo "" >> ~/.bashrc && \
     echo "# Load Custom Aliases" >> ~/.bashrc && \
-    echo "source /home/laradock/aliases.sh" >> ~/.bashrc && \
+    echo "source /home/developer/aliases.sh" >> ~/.bashrc && \
     echo "" >> ~/.bashrc
 
 #####################################
@@ -126,10 +138,17 @@ ENV INSTALL_WORKSPACE_SSH ${INSTALL_WORKSPACE_SSH}
 
 RUN if [ ${INSTALL_WORKSPACE_SSH} = true ]; then \
     rm -f /etc/service/sshd/down && \
+
     cat /dev/zero | ssh-keygen -q -N "" && \
     cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys && \
     chmod 644 /root/.ssh/authorized_keys /root/.ssh/id_rsa.pub && \
-    chmod 400 /root/.ssh/id_rsa \
+    chmod 400 /root/.ssh/id_rsa && \
+
+    cat /dev/zero | sudo -u developer ssh-keygen -q -N "" && \
+    cat /home/developer/.ssh/id_rsa.pub >> /home/developer/.ssh/authorized_keys && \
+    cat /root/.ssh/id_rsa.pub >> /home/developer/.ssh/authorized_keys && \
+    chmod 644 /home/developer/.ssh/authorized_keys /home/developer/.ssh/id_rsa.pub && \
+    chmod 400 /home/developer/.ssh/id_rsa \
 ;fi
 
 #####################################
@@ -159,7 +178,7 @@ RUN if [ ${INSTALL_DRUSH} = true ]; then \
     drush core-status \
 ;fi
 
-USER laradock
+USER developer
 
 #####################################
 # Node / NVM:
@@ -170,7 +189,7 @@ ARG NODE_VERSION=stable
 ENV NODE_VERSION ${NODE_VERSION}
 ARG INSTALL_NODE=false
 ENV INSTALL_NODE ${INSTALL_NODE}
-ENV NVM_DIR /home/laradock/.nvm
+ENV NVM_DIR /home/developer/.nvm
 RUN if [ ${INSTALL_NODE} = true ]; then \
     # Install nvm (A Node Version Manager)
     curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.31.6/install.sh | bash && \
@@ -194,7 +213,7 @@ USER root
 
 RUN if [ ${INSTALL_NODE} = true ]; then \
     echo "" >> ~/.bashrc && \
-    echo 'export NVM_DIR="/home/laradock/.nvm"' >> ~/.bashrc && \
+    echo 'export NVM_DIR="/home/developer/.nvm"' >> ~/.bashrc && \
     echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"  # This loads nvm' >> ~/.bashrc \
 ;fi
 
@@ -202,7 +221,7 @@ RUN if [ ${INSTALL_NODE} = true ]; then \
 # YARN:
 #####################################
 
-USER laradock
+USER developer
 
 ARG INSTALL_YARN=false
 ENV INSTALL_YARN ${INSTALL_YARN}
@@ -225,7 +244,7 @@ USER root
 
 RUN if [ ${INSTALL_YARN} = true ]; then \
     echo "" >> ~/.bashrc && \
-    echo 'export YARN_DIR="/home/laradock/.yarn"' >> ~/.bashrc && \
+    echo 'export YARN_DIR="/home/developer/.yarn"' >> ~/.bashrc && \
     echo 'export PATH="$YARN_DIR/bin:$PATH"' >> ~/.bashrc \
 ;fi
 
@@ -234,7 +253,7 @@ RUN if [ ${INSTALL_YARN} = true ]; then \
 #####################################
 USER root
 
-ARG INSTALL_AEROSPIKE_EXTENSION=true
+ARG INSTALL_AEROSPIKE_EXTENSION=false
 ENV INSTALL_AEROSPIKE_EXTENSION ${INSTALL_AEROSPIKE_EXTENSION}
 
 # Copy aerospike configration for remote debugging
@@ -280,7 +299,7 @@ RUN if [ ${INSTALL_V8JS_EXTENSION} = true ]; then \
 #####################################
 
 # add ./vendor/bin to non-root user's bashrc (needed for phpunit)
-USER laradock
+USER developer
 
 RUN echo "" >> ~/.bashrc && \
     echo 'export PATH="/var/www/vendor/bin:$PATH"' >> ~/.bashrc
@@ -296,9 +315,9 @@ RUN echo "" >> ~/.bashrc && \
 #####################################
 # Laravel Envoy:
 #####################################
-USER laradock
+USER developer
 
-ARG INSTALL_LARAVEL_ENVOY=true
+ARG INSTALL_LARAVEL_ENVOY=false
 ENV INSTALL_LARAVEL_ENVOY ${INSTALL_LARAVEL_ENVOY}
 
 RUN if [ ${INSTALL_LARAVEL_ENVOY} = true ]; then \
@@ -309,7 +328,7 @@ RUN if [ ${INSTALL_LARAVEL_ENVOY} = true ]; then \
 #####################################
 # Deployer:
 #####################################
-USER laradock
+USER developer
 
 ARG INSTALL_DEPLOYER=false
 ENV INSTALL_DEPLOYER ${INSTALL_DEPLOYER}
@@ -324,7 +343,7 @@ RUN if [ ${INSTALL_DEPLOYER} = true ]; then \
 #####################################
 USER root
 
-ARG INSTALL_LINUXBREW=true
+ARG INSTALL_LINUXBREW=false
 ENV INSTALL_LINUXBREW ${INSTALL_LINUXBREW}
 
 RUN if [ ${INSTALL_LINUXBREW} = true ]; then \
