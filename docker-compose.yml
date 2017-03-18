@@ -34,6 +34,16 @@ services:
                 - TZ=$TZ
         volumes_from:
             - applications
+        volumes:
+            - developer_ssh:/home/developer/.ssh
+            - root_ssh:/root/.ssh
         extra_hosts:
             - "dockerhost:$COMPOSE_DOCKER_HOST"
         tty: true
+
+volumes:
+    developer_ssh:
+        driver: local
+    root_ssh:
+        driver: local
+
